@@ -1,0 +1,72 @@
+[project]
+name = "mini-nginx"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.135.2",
+    "loguru>=0.7.3",
+    "pre-commit>=4.5.1",
+    "pyyaml>=6.0.2",
+    "ruff>=0.15.8",
+    "uvicorn>=0.42.0",
+    "uvloop>=0.22.1",
+]
+
+[dependency-groups]
+dev = [
+    "pyproject-runner>=0.3.0",
+]
+lint = [
+    "ruff>=0.15.8",
+]
+
+[tool.pyproject-runner.tasks]
+lint = { cmd = "ruff check app main.py" }
+
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+preview = true
+select = [
+    "UP",
+    "I",
+    "E",
+    "W",
+    "F",
+    "B",
+    "C4",
+    "S",
+    "BLE",
+    "T20",
+    "T10",
+    "PT",
+    "RUF",
+    "DTZ",
+    "ERA",
+    "FURB",
+]
+
+ignore = [
+    "C408",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    "S110",
+]
+
+exclude = [
+    "src/tests/**",
+]
+
+fixable = [
+    "I",
+]
+
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
