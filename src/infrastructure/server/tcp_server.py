@@ -1,9 +1,11 @@
-import asyncio
-from asyncio import StreamReader, StreamWriter
+import queue
+import socket
+import threading
 from contextlib import suppress
 from typing import final
 
 from loguru import logger
+
 from src.application.metrics import Metrics
 from src.infrastructure.server.connection_handler import ConnectionHandler
 
@@ -14,38 +16,58 @@ class TCPServer:
         self,
         connection_handler: ConnectionHandler,
         max_client_conns: int = 0,
+        client_pool_size: int = 0,
         metrics: Metrics | None = None,
     ) -> None:
         self._connection_handler = connection_handler
         self._client_semaphore = (
-            asyncio.Semaphore(max_client_conns) if max_client_conns > 0 else None
+            threading.Semaphore(max_client_conns) if max_client_conns > 0 else None
         )
+        self._client_pool_size = client_pool_size if client_pool_size > 0 else 1
+        self._queue: queue.Queue[tuple[socket.socket, tuple[str, int] | None]] = queue.Queue()
         self._metrics = metrics
-        self._writers: set[StreamWriter] = set()
-        self._tasks: set[asyncio.Task[None]] = set()
+        self._workers: list[threading.Thread] = []
 
-    async def add_client(self, reader: StreamReader, writer: StreamWriter) -> None:
-        if self._client_semaphore is not None:
-            await self._client_semaphore.acquire()
-        if self._metrics is not None:
-            self._metrics.inc_active_connections()
-        self._writers.add(writer)
+    def start(self) -> None:
+        for _ in range(self._client_pool_size):
+            thread = threading.Thread(target=self._worker, daemon=True)
+            thread.start()
+            self._workers.append(thread)
 
-        peer = writer.get_extra_info("peername")
-        logger.info("Новое соединение: {}", peer)
+    def serve_forever(self, host: str, port: int, reuse_port: bool = False) -> None:
+        server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if reuse_port and hasattr(socket, "SO_REUSEPORT"):
+            server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        server_sock.bind((host, port))
+        server_sock.listen()
+        logger.info("Server started on {}:{}", host, port)
+        self.start()
 
-        task = asyncio.create_task(self._connect(reader, writer))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-
-    async def _connect(self, reader: StreamReader, writer: StreamWriter) -> None:
         try:
-            await self._connection_handler.handle(reader, writer)
-        except asyncio.IncompleteReadError:
-            logger.exception("Клиент оборвал соединение во время чтения")
-            if self._metrics is not None:
-                self._metrics.inc_errors()
-        except (ConnectionError, OSError) as exc:
+            while True:
+                client_sock, addr = server_sock.accept()
+                if self._client_semaphore is not None:
+                    self._client_semaphore.acquire()
+                if self._metrics is not None:
+                    self._metrics.inc_active_connections()
+                logger.info("Новое соединение: {}", addr)
+                self._queue.put((client_sock, addr))
+        finally:
+            server_sock.close()
+
+    def _worker(self) -> None:
+        while True:
+            client_sock, _ = self._queue.get()
+            try:
+                self._connect(client_sock)
+            finally:
+                self._queue.task_done()
+
+    def _connect(self, client_sock: socket.socket) -> None:
+        try:
+            self._connection_handler.handle(client_sock)
+        except ConnectionError as exc:
             logger.exception("Ошибка соединения: {}", exc)
             if self._metrics is not None:
                 self._metrics.inc_errors()
@@ -54,12 +76,8 @@ class TCPServer:
             if self._metrics is not None:
                 self._metrics.inc_errors()
         finally:
-            if writer in self._writers:
-                self._writers.remove(writer)
-
-            writer.close()
             with suppress(Exception):
-                await writer.wait_closed()
+                client_sock.close()
 
             logger.info("Соединение закрыто")
             if self._metrics is not None:

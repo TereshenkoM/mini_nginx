@@ -19,6 +19,8 @@ class TimeoutsConfig:
 class LimitsConfig:
     max_client_conns: int
     max_conns_per_upstream: int
+    client_pool_size: int
+    worker_processes: int
 
 
 @dataclass(slots=True)

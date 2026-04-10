@@ -1,3 +1,4 @@
+import threading
 import time
 
 
@@ -9,34 +10,41 @@ class Metrics:
         self._active_connections = 0
         self._request_duration_seconds_sum = 0.0
         self._request_duration_seconds_count = 0
+        self._lock = threading.Lock()
 
     def inc_requests(self) -> None:
-        self._requests_total += 1
+        with self._lock:
+            self._requests_total += 1
 
     def inc_errors(self) -> None:
-        self._errors_total += 1
+        with self._lock:
+            self._errors_total += 1
 
     def inc_active_connections(self) -> None:
-        self._active_connections += 1
+        with self._lock:
+            self._active_connections += 1
 
     def dec_active_connections(self) -> None:
-        if self._active_connections > 0:
-            self._active_connections -= 1
+        with self._lock:
+            if self._active_connections > 0:
+                self._active_connections -= 1
 
     def observe_request_duration(self, seconds: float) -> None:
-        self._request_duration_seconds_sum += seconds
-        self._request_duration_seconds_count += 1
+        with self._lock:
+            self._request_duration_seconds_sum += seconds
+            self._request_duration_seconds_count += 1
 
     def snapshot(self) -> dict[str, float]:
-        uptime = max(0.0, time.monotonic() - self._start_time)
-        return {
-            "requests_total": float(self._requests_total),
-            "errors_total": float(self._errors_total),
-            "active_connections": float(self._active_connections),
-            "request_duration_seconds_sum": self._request_duration_seconds_sum,
-            "request_duration_seconds_count": float(self._request_duration_seconds_count),
-            "uptime_seconds": uptime,
-        }
+        with self._lock:
+            uptime = max(0.0, time.monotonic() - self._start_time)
+            return {
+                "requests_total": float(self._requests_total),
+                "errors_total": float(self._errors_total),
+                "active_connections": float(self._active_connections),
+                "request_duration_seconds_sum": self._request_duration_seconds_sum,
+                "request_duration_seconds_count": float(self._request_duration_seconds_count),
+                "uptime_seconds": uptime,
+            }
 
     def render_prometheus(self) -> str:
         metrics = self.snapshot()

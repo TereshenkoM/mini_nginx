@@ -12,6 +12,8 @@ timeouts:
 limits:
   max_client_conns: 1000
   max_conns_per_upstream: 100
+  client_pool_size: 100
+  worker_processes: 1
 logging:
   level: "info"
 metrics:

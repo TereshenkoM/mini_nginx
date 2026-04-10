@@ -1,8 +1,8 @@
-import asyncio
 from pathlib import Path
+import multiprocessing
 import sys
+import threading
 
-import uvloop
 from loguru import logger
 
 from src.application.metrics import Metrics
@@ -10,15 +10,10 @@ from src.infrastructure.config_loader import load_config
 from src.infrastructure.server.connection_handler import ConnectionHandler
 from src.infrastructure.server.tcp_server import TCPServer
 from src.interfaces.http.request_parser import HttpRequestParser
-from src.interfaces.metrics_server import handle_metrics
+from src.interfaces.metrics_server import serve_metrics
 
 
-async def client_connected(reader, writer, server: TCPServer) -> None:
-    await server.add_client(reader, writer)
-
-
-async def main() -> None:
-    config = load_config(Path("config.yaml"))
+def run_worker(config, enable_metrics: bool, reuse_port: bool) -> None:
     logger.remove()
     logger.add(sys.stderr, level=config.logging.level.upper())
 
@@ -34,40 +29,43 @@ async def main() -> None:
     server_instance = TCPServer(
         connection_handler=connection_handler,
         max_client_conns=config.limits.max_client_conns,
+        client_pool_size=config.limits.client_pool_size,
         metrics=metrics,
     )
 
-    server = await asyncio.start_server(
-        lambda reader, writer: client_connected(reader, writer, server_instance),
+    if enable_metrics:
+        metrics_thread = threading.Thread(
+            target=serve_metrics,
+            args=(config.metrics.listen_host, config.metrics.listen_port, metrics),
+            daemon=True,
+        )
+        metrics_thread.start()
+
+    server_instance.serve_forever(
         host=config.listen_host,
         port=config.listen_port,
+        reuse_port=reuse_port,
     )
-
-    sockets = server.sockets
-    for sock in sockets:
-        logger.info("Server started on {}", sock.getsockname())
-
-    metrics_server = None
-    if config.metrics.enabled:
-        metrics_server = await asyncio.start_server(
-            lambda reader, writer: handle_metrics(reader, writer, metrics),
-            host=config.metrics.listen_host,
-            port=config.metrics.listen_port,
-        )
-        for sock in metrics_server.sockets or []:
-            logger.info("Metrics server started on {}", sock.getsockname())
-
-    async with server:
-        if metrics_server is not None:
-            async with metrics_server:
-                await asyncio.gather(
-                    server.serve_forever(),
-                    metrics_server.serve_forever(),
-                )
-        else:
-            await server.serve_forever()
 
 
 if __name__ == "__main__":
-    uvloop.install()
-    asyncio.run(main())
+    config = load_config(Path("config.yaml"))
+    worker_processes = max(1, config.limits.worker_processes)
+    if worker_processes == 1:
+        run_worker(config, config.metrics.enabled, reuse_port=False)
+    else:
+        if config.metrics.enabled:
+            logger.warning(
+                "Metrics server is started only in worker 0 when worker_processes > 1"
+            )
+        processes: list[multiprocessing.Process] = []
+        for index in range(worker_processes):
+            enable_metrics = config.metrics.enabled and index == 0
+            process = multiprocessing.Process(
+                target=run_worker,
+                args=(config, enable_metrics, True),
+            )
+            process.start()
+            processes.append(process)
+        for process in processes:
+            process.join()
