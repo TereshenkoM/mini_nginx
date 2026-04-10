@@ -21,7 +21,7 @@ class TCPServer:
             asyncio.Semaphore(max_client_conns) if max_client_conns > 0 else None
         )
         self._metrics = metrics
-        self._writers: list[StreamWriter] = []
+        self._writers: set[StreamWriter] = set()
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def add_client(self, reader: StreamReader, writer: StreamWriter) -> None:
@@ -29,7 +29,7 @@ class TCPServer:
             await self._client_semaphore.acquire()
         if self._metrics is not None:
             self._metrics.inc_active_connections()
-        self._writers.append(writer)
+        self._writers.add(writer)
 
         peer = writer.get_extra_info("peername")
         logger.info("Новое соединение: {}", peer)

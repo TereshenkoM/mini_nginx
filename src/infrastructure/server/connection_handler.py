@@ -32,11 +32,10 @@ class ConnectionHandler:
         self._metrics = metrics
 
     async def _next_upstream(self) -> tuple[int, UpstreamConfig]:
-        async with self._upstream_lock:
-            index = self._upstream_index
-            upstream = self._upstreams[index]
-            self._upstream_index = (self._upstream_index + 1) % len(self._upstreams)
-            return index, upstream
+        index = self._upstream_index
+        upstream = self._upstreams[index]
+        self._upstream_index = (self._upstream_index + 1) % len(self._upstreams)
+        return index, upstream
 
     async def _pipe(
         self,
