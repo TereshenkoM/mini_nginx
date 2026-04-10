@@ -6,12 +6,16 @@ class HttpParseError(Exception):
     pass
 
 
+class HttpClientDisconnected(HttpParseError):
+    pass
+
+
 @final
 class HttpRequestParser:
     async def parse(self, reader: StreamReader) -> tuple[str, str, str, dict[str, str], bytes]:
         request_line = await self._read_line(reader)
         if request_line == b"":
-            raise HttpParseError("Empty request line")
+            raise HttpClientDisconnected("Empty request line")
 
         request_line_str = self._decode_line(request_line, "Request line is not valid UTF-8")
         parts = request_line_str.split(" ")
@@ -24,7 +28,7 @@ class HttpRequestParser:
         while True:
             line = await self._read_line(reader)
             if line == b"":
-                raise HttpParseError("Unexpected end of headers")
+                raise HttpClientDisconnected("Unexpected end of headers")
             if line == b"\r\n":
                 break
 

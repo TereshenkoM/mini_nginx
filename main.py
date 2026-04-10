@@ -34,6 +34,7 @@ async def main() -> None:
     server_instance = TCPServer(
         connection_handler=connection_handler,
         max_client_conns=config.limits.max_client_conns,
+        client_pool_size=config.limits.client_pool_size,
         metrics=metrics,
     )
 
@@ -42,6 +43,7 @@ async def main() -> None:
         host=config.listen_host,
         port=config.listen_port,
     )
+    await server_instance.start()
 
     sockets = server.sockets
     for sock in sockets:

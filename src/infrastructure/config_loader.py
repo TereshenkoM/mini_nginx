@@ -45,6 +45,7 @@ def load_config(path: Path) -> AppConfig:
     limits = LimitsConfig(
         max_client_conns=int(limits_raw.get("max_client_conns", 0)),
         max_conns_per_upstream=int(limits_raw.get("max_conns_per_upstream", 0)),
+        client_pool_size=int(limits_raw.get("client_pool_size", 0)),
     )
     logging = LoggingConfig(level=str(logging_raw.get("level", "info")))
 
